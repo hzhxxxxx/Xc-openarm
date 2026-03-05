@@ -232,6 +232,51 @@ hardware_interface::CallbackReturn OpenArm_v10HW::on_init(
   RCLCPP_INFO(rclcpp::get_logger("OpenArm_v10HW"),
               "OpenArm V10 Simple HW initialized successfully");
 
+  // --- 重力补偿初始化 ---
+  // 读取可选参数 g_scale
+  auto gs_it = info.hardware_parameters.find("g_scale");
+  if (gs_it != info.hardware_parameters.end()) {
+    g_scale_ = std::stod(gs_it->second);
+  }
+
+  auto ge_it = info.hardware_parameters.find("gravity_comp_enable");
+  if (ge_it != info.hardware_parameters.end()) {
+    gravity_comp_enable_ = (ge_it->second == "true");
+  }
+
+  // 根据 arm_prefix_ 确定链节点名和重力方向
+  std::string base = (arm_prefix_.find("right") != std::string::npos)
+                     ? "openarmx_right" : "openarmx_left";
+  std::string start_link = base + "_link0";
+  std::string end_link   = base + "_link7";
+
+  // 从 hardware_parameter 读取 URDF 文件路径
+  std::string urdf_path = "";
+  auto up_it = info.hardware_parameters.find("urdf_path");
+  if (up_it != info.hardware_parameters.end()) {
+    urdf_path = up_it->second;
+  }
+
+  if (urdf_path.empty()) {
+    RCLCPP_WARN(rclcpp::get_logger("OpenArm_v10HW"),
+                "urdf_path not set, gravity compensation disabled");
+  } else {
+    arm_dyn_ = std::make_unique<Dynamics>(urdf_path, start_link, end_link);
+    if (!arm_dyn_->Init()) {
+      RCLCPP_ERROR(rclcpp::get_logger("OpenArm_v10HW"),
+                   "Failed to init gravity compensation from: %s", urdf_path.c_str());
+      arm_dyn_.reset();
+    } else {
+      double gy = (arm_prefix_.find("right") != std::string::npos) ? -9.81 : 9.81;
+      arm_dyn_->SetGravityVector(0.0, gy, 0.0);
+      tau_gravity_.assign(ARM_DOF, 0.0);
+      RCLCPP_INFO(rclcpp::get_logger("OpenArm_v10HW"),
+                  "Gravity comp init: %s -> %s, gy=%.2f, g_scale=%.2f, enable=%s",
+                  start_link.c_str(), end_link.c_str(), gy, g_scale_,
+                  gravity_comp_enable_ ? "ON" : "OFF(dry-run)");
+    }
+  }
+
   return CallbackReturn::SUCCESS;
 }
 
@@ -457,6 +502,23 @@ hardware_interface::return_type OpenArm_v10HW::write(
     // Motion control path (MIT)
     std::vector<openarmx::robstride_motor::MotionControlParam> arm_params(ARM_DOF);
 
+    // 计算重力前馈（仅对 ARM_DOF 个关节，不含夹爪）
+    if (arm_dyn_) {
+      arm_dyn_->GetGravity(pos_commands_.data(), tau_gravity_.data());
+
+      // 每 500 个控制周期打印一次，方便 dry-run 验证数值
+      if (++gravity_log_counter_ >= 500) {
+        gravity_log_counter_ = 0;
+        RCLCPP_INFO(rclcpp::get_logger("OpenArm_v10HW"),
+          "[GravComp %s] tau_grav(Nm): [%.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f] "
+          "g_scale=%.2f enable=%s",
+          arm_prefix_.c_str(),
+          tau_gravity_[0], tau_gravity_[1], tau_gravity_[2], tau_gravity_[3],
+          tau_gravity_[4], tau_gravity_[5], tau_gravity_[6],
+          g_scale_, gravity_comp_enable_ ? "ON" : "OFF(dry-run)");
+      }
+    }
+
     // Lock to safely read KP/KD values
     std::lock_guard<std::mutex> lock(kp_kd_mutex_);
 
@@ -466,7 +528,11 @@ hardware_interface::return_type OpenArm_v10HW::write(
       param.kd = kd_values_[i];
       param.position = pos_commands_[i] * direction_multipliers[i];
       param.velocity = vel_commands_[i] * direction_multipliers[i];
-      param.torque = tau_commands_[i] * direction_multipliers[i];
+      double tau_grav = 0.0;
+      if (arm_dyn_ && gravity_comp_enable_ && i < tau_gravity_.size()) {
+        tau_grav = tau_gravity_[i] * g_scale_;
+      }
+      param.torque = (tau_commands_[i] + tau_grav) * direction_multipliers[i];
       arm_params[i] = param;
     }
     openarm_->get_arm().send_motion_control_commands(arm_params);

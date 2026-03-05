@@ -29,18 +29,27 @@ find_package(rclcpp_lifecycle REQUIRED)
 # Find openarmx_can library
 find_package(openarmx_can REQUIRED)
 
+# Gravity compensation dependencies
+find_package(urdf REQUIRED)
+find_package(orocos_kdl REQUIRED)
+find_package(kdl_parser REQUIRED)
+find_package(Eigen3 REQUIRED)
+
 add_library(${PROJECT_NAME} SHARED
   src/v10_simple_hardware.cpp
+  src/dynamics.cpp
 )
 
 target_include_directories(
   ${PROJECT_NAME}
   PRIVATE
   include
+  ${EIGEN3_INCLUDE_DIRS}
 )
 
 target_link_libraries(${PROJECT_NAME}
   openarmx_can::openarmx_can
+  Eigen3::Eigen
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -48,6 +57,9 @@ ament_target_dependencies(${PROJECT_NAME}
   pluginlib
   rclcpp
   rclcpp_lifecycle
+  urdf
+  orocos_kdl
+  kdl_parser
 )
 
 pluginlib_export_plugin_description_file(hardware_interface openarmx_hardware.xml)

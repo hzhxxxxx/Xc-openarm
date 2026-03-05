@@ -28,6 +28,7 @@
 #include "hardware_interface/hardware_info.hpp"
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
+#include "openarmx_hardware/dynamics.hpp"
 #include "openarmx_hardware/visibility_control.h"
 #include "rclcpp/macros.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -195,6 +196,13 @@ class OpenArm_v10HW : public hardware_interface::SystemInterface {
   // Transient debug: help diagnose wrong mapping/offset on some sites
   // We only print a few cycles after activation to avoid flooding logs.
   int debug_cycles_remaining_ = 0;  // set in on_activate
+
+  // Gravity compensation
+  std::unique_ptr<Dynamics> arm_dyn_;
+  std::vector<double> tau_gravity_;   // 重力力矩缓存
+  double g_scale_ = 0.9;              // 可通过 hardware_parameter 配置
+  bool gravity_comp_enable_ = false;  // 默认关闭，dry-run 验证后再开启
+  int gravity_log_counter_ = 0;       // 控制日志打印频率
 };
 
 }  // namespace openarmx_hardware
