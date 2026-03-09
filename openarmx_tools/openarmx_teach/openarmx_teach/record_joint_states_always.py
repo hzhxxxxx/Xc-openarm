@@ -6,6 +6,7 @@ import termios
 import select
 import yaml
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 import rclpy
@@ -98,9 +99,42 @@ def save_yaml(file_path: str, joint_names: List[str], points: List[List[float]],
         yaml.safe_dump(data, f, sort_keys=False)
 
 
-def default_filename(prefix: str = 'joint_states_stream') -> str:
+def get_default_trajectory_dir() -> Path:
+    """获取默认轨迹存储目录"""
+    # 尝试找到openarmx_teach包的路径
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        pkg_share = get_package_share_directory('openarmx_teach')
+        # share目录的上级是install，我们要找src
+        # 通常结构是: workspace/install/openarmx_teach/share/...
+        # 我们需要: workspace/src/openarmx_tools/openarmx_teach/trajectories
+        traj_dir = Path(pkg_share).parent.parent.parent.parent / 'src' / 'openarmx_tools' / 'openarmx_teach' / 'trajectories'
+        if traj_dir.exists():
+            return traj_dir
+    except Exception:
+        pass
+
+    # 如果找不到，使用当前目录下的trajectories文件夹
+    fallback_dir = Path.cwd() / 'trajectories'
+    fallback_dir.mkdir(exist_ok=True)
+    return fallback_dir
+
+
+def default_filename(prefix: str = 'joint_states_stream', use_default_dir: bool = True) -> str:
+    """生成默认文件名
+
+    Args:
+        prefix: 文件名前缀
+        use_default_dir: 是否使用默认目录（trajectories文件夹）
+    """
     stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    return f"{prefix}_{stamp}.yaml"
+    filename = f"{prefix}_{stamp}.yaml"
+
+    if use_default_dir:
+        traj_dir = get_default_trajectory_dir()
+        return str(traj_dir / filename)
+    else:
+        return filename
 
 
 def main() -> None:
@@ -114,6 +148,11 @@ def main() -> None:
     node = JointStatesRecorder(args.topic, args.rate)
 
     dt = 1.0 / max(args.rate, 1e-3)
+
+    # 显示保存目录
+    if not args.outfile:
+        traj_dir = get_default_trajectory_dir()
+        print(f'Default save directory: {traj_dir}')
 
     print('Controls:')
     print('- SPACE: start/stop recording toggle')

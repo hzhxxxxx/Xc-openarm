@@ -22,6 +22,7 @@ setup(
             'record_joint_states_stepbystep = openarmx_teach.record_joint_states_stepbystep:main',
             'record_joint_states_always = openarmx_teach.record_joint_states_always:main',
             'play_joint_trajectory = openarmx_teach.play_joint_trajectory:main',
+            'compress_trajectory = openarmx_teach.compress_trajectory:main',
         ],
     },
 ) 

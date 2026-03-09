@@ -1,0 +1,8 @@
+# 忽略所有轨迹文件
+*.yaml
+
+# 但保留这个.gitignore文件
+!.gitignore
+
+# 可选：保留示例文件
+!example_*.yaml
