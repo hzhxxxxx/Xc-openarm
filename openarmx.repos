@@ -10,26 +10,26 @@ repositories:
   # Required: Contains robot model definitions
   openarmx_description:
     type: git
-    url: git@github.com:openarmx/openarmx_description.git
+    url: https://github.com/openarmx/openarmx_description.git
     version: 6.0_basic
 
   # Teleoperation / Leader arm control package
   # Optional: For leader-follower teleoperation scenarios
   openarmx_teleop_bimanual:
     type: git
-    url: git@github.com:openarmx/openarmx_teleop_bimanual.git
+    url: https://github.com/openarmx/openarmx_teleop_bimanual.git
     version: 6.0_basic
 
   # Tools collection (RViz panels, teaching features)
   # Optional: Includes KP/KD tuning panel, gripper panel, trajectory teaching/playback
   openarmx_tools:
     type: git
-    url: git@github.com:openarmx/openarmx_tools.git
+    url: https://github.com/openarmx/openarmx_tools.git
     version: 6.0_basic
 
   # Motor management tool
   # Optional: For motor parameter configuration and management
   openarmx_motor_manager:
     type: git
-    url: git@github.com:openarmx/openarmx_motor_manager.git
+    url: https://github.com/openarmx/openarmx_motor_manager.git
     version: 6.0_basic

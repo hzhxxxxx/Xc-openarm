@@ -60,10 +60,10 @@ For details, see [LICENSE_CN.md](LICENSE_CN.md) or visit: http://creativecommons
 
 ### Chengdu Changshu Robotics Co., Ltd.
 
-| Contact Method | Information |
-|---------------|-------------|
-| Email | openarmrobot@gmail.com |
-| Phone/WeChat | +86-17746530375 |
-| Official Website | <https://openarmx.com/> |
-| Address | Huacheng Machinery Factory, No.11 Xinye 8th Street, West Area, Tianjin Economic-Technological Development Area |
-| Contact Person | Mr. Wang |
+| Contact           | Information                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| 📧 Email          | [openarmrobot@gmail.com](mailto:openarmrobot@gmail.com)                                                      |
+| 📱 Phone / WeChat | +86-17746530375                                                                                              |
+| 🌐 Website        | [https://openarmx.com/](https://openarmx.com/)                                                               |
+| 📍 Address        | Huacheng Machinery Plant, No.11 Xinye 8th Street, West Area, Tianjin Economic-Technological Development Area |
+| 👤 Contact Person | Mr. Wang                                                                                                     |

@@ -26,7 +26,7 @@ Core ROS 2 packages for OpenArmX. Combined with `openarmx_description` (URDF/xac
 sudo apt-get install python3-vcstool -y
 
 mkdir -p ~/openarmx_ws/src && cd ~/openarmx_ws/src
-git clone git@github.com:openarmx/openarmx_ros2.git
+git clone https://github.com/openarmx/openarmx_ros2.git
 # Fetch the required robot description (minimal) or full optional set
 vcs import < openarmx_ros2/openarmx_minimal.repos
 # or: vcs import < openarmx_ros2/openarmx.repos
