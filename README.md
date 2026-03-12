@@ -11,7 +11,7 @@ Core ROS 2 packages for OpenArmX. Combined with `openarmx_description` (URDF/xac
 - `openarmx_bimanual_moveit_config` – MoveIt config (bimanual example) that depends on `openarmx_description`.
 - `openarmx_preview_bringup`：A ROS 2 package for robot joint motion control.
 - Additional repos: see `openarmx_minimal.repos` (required `openarmx_description`) or `openarmx.repos` (adds teleop/tools/motor manager).
-- `openarmx-can_1.0.0_amd64.deb`：driver of motors。
+- `openarmx-can_1.0.0_amd64.deb`：driver of motors, The motor driver must be installed before compilation.
 
 ## Requirements
 - Ubuntu 22.04, ROS 2 Humble.
