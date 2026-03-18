@@ -33,6 +33,11 @@ vcs import < openarmx_ros2/openarmx_minimal.repos
 rosdep install --from-paths . --ignore-src -r -y
 ```
 
+## 安装 OpenArmX Can
+```bash
+sudo dpkg -i openarmx-can_1.0.0_amd64.deb
+```
+
 ## 编译
 ```bash
 cd ~/openarmx_ws
@@ -82,5 +87,6 @@ source install/setup.bash
 | 📧 邮箱 | openarmrobot@gmail.com |
 | 📱 电话/微信 | +86-17746530375 |
 | 🌐 官网 | <https://openarmx.com/> |
+| 🌐 文档 | <http://docs.openarmx.com/> |
 | 📍 地址 | 天津经济技术开发区西区新业八街11号华诚机械厂 |
 | 👤 联系人 | 王先生 |

@@ -33,6 +33,11 @@ vcs import < openarmx_ros2/openarmx_minimal.repos
 rosdep install --from-paths . --ignore-src -r -y
 ```
 
+## Install OpenArmX Can
+```bash
+sudo dpkg -i openarmx-can_1.0.0_amd64.deb
+```
+
 ## Build
 ```bash
 cd ~/openarmx_ws
@@ -81,5 +86,6 @@ This package is part of the OpenArmX robotic platform ecosystem, developed for r
 | 📧 Email          | [openarmrobot@gmail.com](mailto:openarmrobot@gmail.com)                                                      |
 | 📱 Phone / WeChat | +86-17746530375                                                                                              |
 | 🌐 Website        | [https://openarmx.com/](https://openarmx.com/)                                                               |
+| 🌐 Documentation  | [http://docs.openarmx.com/](http://docs.openarmx.com/)                                                               |
 | 📍 Address        | Huacheng Machinery Plant, No.11 Xinye 8th Street, West Area, Tianjin Economic-Technological Development Area |
 | 👤 Contact Person | Mr. Wang                                                                                                     |
