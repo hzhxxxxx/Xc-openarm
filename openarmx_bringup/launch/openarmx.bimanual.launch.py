@@ -235,12 +235,16 @@ def generate_launch_description():
          "bimanual.rviz"]
     )
 
-    rviz_node = Node(
-        package="rviz2",
-        executable="rviz2",
-        name="rviz2",
-        output="log",
-        arguments=["-d", rviz_config_file],
+    # RViz node with dynamic namespace support
+    rviz_node_func = OpaqueFunction(
+        function=lambda context: [Node(
+            package="rviz2",
+            executable="rviz2",
+            name="rviz2",
+            namespace=namespace_from_context(context, arm_prefix),
+            output="log",
+            arguments=["-d", rviz_config_file],
+        )]
     )
 
     # Joint state broadcaster spawner
@@ -300,7 +304,7 @@ def generate_launch_description():
     return LaunchDescription(
         declared_arguments + [
             robot_nodes_spawner_func,
-            rviz_node,
+            rviz_node_func,
         ] +
         [
             delayed_joint_state_broadcaster,
