@@ -580,14 +580,54 @@ hardware_interface::return_type OpenArmX_v10HW::write(
     openarmx->get_arm().send_motion_control_commands(arm_params);
 
     if (hand_ && joint_names_.size() > ARM_DOF) {
+      // Stall detection: if position error is large but the gripper hasn't moved
+      // for GRIPPER_STALL_CYCLES consecutive cycles, assume it's gripping a hard
+      // object and clamp the command to the current state to relieve motor current.
+      // Once stall is active, hold the locked position until the upper-layer sends
+      // a meaningfully different command (i.e. release gesture), preventing oscillation.
+      if (gripper_stall_active_) {
+        // Stay locked unless upper-layer command moves far enough away (release intent)
+        double cmd_delta = pos_commands_[ARM_DOF] - gripper_stall_locked_pos_;
+        if (cmd_delta > GRIPPER_STALL_RELEASE_THRESHOLD) {
+          gripper_stall_active_  = false;
+          gripper_stall_counter_ = 0;
+          RCLCPP_INFO(rclcpp::get_logger("OpenArmX_v10HW"),
+                      "[%s] Gripper stall released, new cmd=%.4f",
+                      arm_prefix_.c_str(), pos_commands_[ARM_DOF]);
+        } else {
+          pos_commands_[ARM_DOF] = gripper_stall_locked_pos_;
+          RCLCPP_INFO_THROTTLE(rclcpp::get_logger("OpenArmX_v10HW"),
+                               *param_node_->get_clock(), 2000,
+                               "[%s] Gripper stall holding at pos=%.4f",
+                               arm_prefix_.c_str(), gripper_stall_locked_pos_);
+        }
+      } else {
+        double pos_error  = std::abs(pos_commands_[ARM_DOF] - pos_states_[ARM_DOF]);
+        double pos_change = std::abs(pos_states_[ARM_DOF] - gripper_last_pos_state_);
+        if (pos_error > GRIPPER_STALL_POS_ERROR_THRESHOLD &&
+            pos_change < GRIPPER_STALL_POS_CHANGE_THRESHOLD) {
+          ++gripper_stall_counter_;
+          if (gripper_stall_counter_ >= GRIPPER_STALL_CYCLES) {
+            gripper_stall_active_     = true;
+            gripper_stall_locked_pos_ = pos_states_[ARM_DOF];
+            pos_commands_[ARM_DOF]    = gripper_stall_locked_pos_;
+            RCLCPP_INFO(rclcpp::get_logger("OpenArmX_v10HW"),
+                        "[%s] Gripper stall detected, locking at pos=%.4f",
+                        arm_prefix_.c_str(), gripper_stall_locked_pos_);
+          }
+        } else {
+          gripper_stall_counter_ = 0;
+        }
+      }
+      gripper_last_pos_state_ = pos_states_[ARM_DOF];
+
       double motor_command = joint_to_motor_radians(pos_commands_[ARM_DOF]);
       openarmx::robstride_motor::MotionControlParam gripper_param;
-      // Use the 8th KP/KD value for gripper (index 7)
-      gripper_param.kp = kp_values_[ARM_DOF];
-      gripper_param.kd = kd_values_[ARM_DOF];
+      gripper_param.kp       = kp_values_[ARM_DOF];
+      gripper_param.kd       = kd_values_[ARM_DOF];
       gripper_param.position = motor_command;
       gripper_param.velocity = 0.0;
-      gripper_param.torque = 0.0;
+      gripper_param.torque   = 0.0;
       openarmx->get_gripper().send_motion_control_commands({gripper_param});
     }
   } else {

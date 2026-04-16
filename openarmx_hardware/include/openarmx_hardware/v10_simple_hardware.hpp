@@ -176,6 +176,16 @@ class OpenArmX_v10HW : public hardware_interface::SystemInterface {
   std::vector<double> vel_states_;
   std::vector<double> tau_states_;
 
+  // Gripper stall detection
+  static constexpr double GRIPPER_STALL_POS_ERROR_THRESHOLD = 0.005;  // m
+  static constexpr double GRIPPER_STALL_POS_CHANGE_THRESHOLD = 0.0005; // m
+  static constexpr int    GRIPPER_STALL_CYCLES = 10;   // 10 cycles @ 100Hz = 100ms
+  static constexpr double GRIPPER_STALL_RELEASE_THRESHOLD = 0.003;  // m, new cmd must move this far to unlock
+  double gripper_last_pos_state_   = 0.0;
+  int    gripper_stall_counter_    = 0;
+  bool   gripper_stall_active_     = false;
+  double gripper_stall_locked_pos_ = 0.0;  // the clamped position when stall was detected
+
   // Helper methods
   void return_to_zero();
   bool parse_config(const hardware_interface::HardwareInfo& info);

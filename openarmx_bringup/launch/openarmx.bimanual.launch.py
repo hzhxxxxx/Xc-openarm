@@ -17,7 +17,8 @@ import xacro
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription, LaunchContext
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler, TimerAction, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, RegisterEventHandler, TimerAction, OpaqueFunction, GroupAction
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.substitutions import (
     LaunchConfiguration,
@@ -135,6 +136,58 @@ def controller_spawner(context: LaunchContext, robot_controller, arm_prefix):
     return [robot_controller_spawner]
 
 
+def effort_controller_spawner(context: LaunchContext, arm_prefix):
+    """Spawn effort controllers for gravity compensation feedforward."""
+    namespace = namespace_from_context(context, arm_prefix)
+    controller_manager_ref = (
+        f"/{namespace}/controller_manager" if namespace else "/controller_manager"
+    )
+    return [Node(
+        package="controller_manager",
+        executable="spawner",
+        namespace=namespace,
+        arguments=[
+            "left_forward_effort_controller",
+            "right_forward_effort_controller",
+            "-c", controller_manager_ref,
+        ],
+    )]
+
+
+def gravity_comp_node_launcher(context: LaunchContext, description_package,
+                                description_file, arm_type, use_fake_hardware,
+                                can_fd, right_can_interface, left_can_interface,
+                                control_mode, arm_prefix):
+    """Write URDF to /tmp and launch gravity_comp_node."""
+    namespace = namespace_from_context(context, arm_prefix)
+
+    robot_description = generate_robot_description(
+        context, description_package, description_file, arm_type,
+        use_fake_hardware, can_fd, right_can_interface, left_can_interface,
+        control_mode,
+    )
+
+    # Write URDF to a temp file so gravity_comp_node can load it via KDL
+    urdf_path = "/tmp/v10_bimanual_gravity.urdf"
+    with open(urdf_path, "w") as f:
+        f.write(robot_description)
+
+    return [Node(
+        package="openarmx_gravity_comp",
+        executable="gravity_comp_node",
+        name="gravity_comp_node",
+        namespace=namespace,
+        output="screen",
+        parameters=[{
+            "urdf_path": urdf_path,
+            "g_scale": 1.05,
+            "enable_left": True,
+            "enable_right": True,
+            "verbose": False,
+        }],
+    )]
+
+
 def generate_launch_description():
     """Generate launch description for OpenArmX bimanual configuration."""
 
@@ -203,6 +256,11 @@ def generate_launch_description():
             choices=["mit", "csp"],
             description="Low-level control mode for motors: 'mit' motion-control or 'csp' position mode.",
         ),
+        DeclareLaunchArgument(
+            "enable_forward_effort",
+            default_value="false",
+            description="Enable gravity compensation feedforward (effort controllers + gravity_comp_node).",
+        ),
     ]
 
     # Initialize launch configurations
@@ -218,6 +276,7 @@ def generate_launch_description():
     arm_prefix = LaunchConfiguration("arm_prefix")
     can_fd = LaunchConfiguration("can_fd")
     control_mode = LaunchConfiguration("control_mode")
+    enable_forward_effort = LaunchConfiguration("enable_forward_effort")
 
     controllers_file = PathJoinSubstitution(
         [FindPackageShare(runtime_config_package), "config",
@@ -285,6 +344,18 @@ def generate_launch_description():
 
     gripper_controller_spawner = OpaqueFunction(function=gripper_controller_spawner_func)
 
+    effort_controller_spawner_func = OpaqueFunction(
+        function=effort_controller_spawner,
+        args=[arm_prefix]
+    )
+
+    gravity_comp_func = OpaqueFunction(
+        function=gravity_comp_node_launcher,
+        args=[description_package, description_file, arm_type,
+              use_fake_hardware, can_fd, rightcan_interface,
+              left_can_interface, control_mode, arm_prefix]
+    )
+
     # Timing and sequencing
     LAUNCH_DELAY_SECONDS = 1.0
     delayed_joint_state_broadcaster = TimerAction(
@@ -301,6 +372,24 @@ def generate_launch_description():
         actions=[gripper_controller_spawner],
     )
 
+    delayed_effort_controller = TimerAction(
+        period=LAUNCH_DELAY_SECONDS,
+        actions=[effort_controller_spawner_func],
+    )
+
+    delayed_gravity_comp = TimerAction(
+        period=LAUNCH_DELAY_SECONDS + 1.0,
+        actions=[gravity_comp_func],
+    )
+
+    forward_effort_group = GroupAction(
+        condition=IfCondition(enable_forward_effort),
+        actions=[
+            delayed_effort_controller,
+            delayed_gravity_comp,
+        ],
+    )
+
     return LaunchDescription(
         declared_arguments + [
             robot_nodes_spawner_func,
@@ -310,5 +399,6 @@ def generate_launch_description():
             delayed_joint_state_broadcaster,
             delayed_robot_controller,
             delayed_gripper_controller,
+            forward_effort_group,
         ]
     )

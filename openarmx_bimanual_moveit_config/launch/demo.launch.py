@@ -23,7 +23,9 @@ from launch.actions import (
     DeclareLaunchArgument,
     TimerAction,
     OpaqueFunction,
+    GroupAction,
 )
+from launch.conditions import IfCondition
 from launch.logging import get_logger
 from launch.substitutions import (
     LaunchConfiguration,
@@ -35,6 +37,7 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 from openarmx_arm_driver import Robot
 from math import pi
+import tempfile
 
 
 
@@ -166,9 +169,69 @@ def check_motor_status():
                     raise Exception(f'\033[91m{arm} 第{motor_id}关节，角度偏离零点位置大于30度！请停电后手动将机械臂各关节调整至零点位置！再上电启动本脚本！\033[0m')
     except Exception as e:
         raise Exception(f'\033[91m电机通信失败或数据解析失败！请检查电机连接！\033[0m')
-    
+
     # 所有电机检测成功，打印绿色成功信息
     print('\033[92m[INFO] 所有电机检测成功，角度在安全范围内！即将启动机械臂！\033[0m')
+
+
+def effort_controller_spawner(context: LaunchContext):
+    return [
+        Node(
+            package="controller_manager",
+            executable="spawner",
+            arguments=[
+                "left_forward_effort_controller",
+                "right_forward_effort_controller",
+                "-c", "/controller_manager",
+            ],
+        )
+    ]
+
+
+def gravity_comp_node_launcher(
+    context: LaunchContext,
+    description_package,
+    description_file,
+    arm_type,
+    use_fake_hardware,
+    can_fd,
+    control_mode,
+    right_can_interface,
+    left_can_interface,
+    arm_prefix,
+):
+    robot_description = generate_robot_description(
+        context,
+        description_package,
+        description_file,
+        arm_type,
+        use_fake_hardware,
+        can_fd,
+        control_mode,
+        right_can_interface,
+        left_can_interface,
+        arm_prefix,
+    )
+
+    urdf_path = "/tmp/v10_bimanual_gravity.urdf"
+    with open(urdf_path, "w") as f:
+        f.write(robot_description)
+
+    return [
+        Node(
+            package="openarmx_gravity_comp",
+            executable="gravity_comp_node",
+            name="gravity_comp_node",
+            output="screen",
+            parameters=[{
+                "urdf_path": urdf_path,
+                "g_scale": 1.05,
+                "enable_left": True,  
+                "enable_right": True,
+                "verbose": False,
+            }],
+        )
+    ]
 
 
 def generate_launch_description():
@@ -211,6 +274,11 @@ def generate_launch_description():
             choices=["mit", "csp"],
             description="Low-level control mode for motors: 'mit' motion-control or 'csp' position mode.",
         ),
+        DeclareLaunchArgument(
+            "enable_forward_effort",
+            default_value="false",
+            description="Enable gravity compensation feedforward (effort controllers + gravity_comp_node).",
+        ),
     ]
 
     description_package = LaunchConfiguration("description_package")
@@ -225,6 +293,7 @@ def generate_launch_description():
     arm_prefix = LaunchConfiguration("arm_prefix")
     can_fd = LaunchConfiguration("can_fd")
     control_mode = LaunchConfiguration("control_mode")
+    enable_forward_effort = LaunchConfiguration("enable_forward_effort")
 
     controllers_file = PathJoinSubstitution(
         [FindPackageShare(runtime_config_package), "config",
@@ -269,6 +338,37 @@ def generate_launch_description():
         period=1.0, actions=[controller_spawner_func])
     delayed_gripper = TimerAction(period=1.0, actions=[gripper_spawner])
 
+    effort_controller_spawner_func = OpaqueFunction(
+        function=effort_controller_spawner)
+
+    gravity_comp_node_launcher_func = OpaqueFunction(
+        function=gravity_comp_node_launcher,
+        args=[
+            description_package,
+            description_file,
+            arm_type,
+            use_fake_hardware,
+            can_fd,
+            control_mode,
+            right_can_interface,
+            left_can_interface,
+            arm_prefix,
+        ],
+    )
+
+    delayed_effort_controller = TimerAction(
+        period=3.0, actions=[effort_controller_spawner_func])
+    delayed_gravity_comp = TimerAction(
+        period=4.0, actions=[gravity_comp_node_launcher_func])
+
+    forward_effort_group = GroupAction(
+        condition=IfCondition(enable_forward_effort),
+        actions=[
+            delayed_effort_controller,
+            delayed_gravity_comp,
+        ],
+    )
+
     moveit_config = MoveItConfigsBuilder(
         "openarmx_bimanual", package_name="openarmx_bimanual_moveit_config"
     ).to_moveit_configs()
@@ -303,6 +403,7 @@ def generate_launch_description():
             delayed_jsb,
             delayed_arm_ctrl,
             delayed_gripper,
+            forward_effort_group,
             run_move_group_node,
             rviz_node,
         ]
