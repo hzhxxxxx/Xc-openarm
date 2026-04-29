@@ -50,11 +50,18 @@ public:
         this->declare_parameter<bool>("enable_left", true);
         this->declare_parameter<bool>("enable_right", true);
         this->declare_parameter<bool>("verbose", false);
+        // [Coriolis] enable_coriolis: 是否叠加科里奥利力前馈补偿，默认开启
+        // 关闭可用于对比实验（ros2 param set /gravity_comp_node enable_coriolis false）
+        this->declare_parameter<bool>("enable_coriolis", true);
+        // [Coriolis] c_scale: 科里奥利力矩缩放系数，类似 g_scale，初期可从小值开始调试
+        this->declare_parameter<double>("c_scale", 1.0);
 
-        g_scale_      = this->get_parameter("g_scale").as_double();
-        verbose_      = this->get_parameter("verbose").as_bool();
-        enable_left_  = this->get_parameter("enable_left").as_bool();
-        enable_right_ = this->get_parameter("enable_right").as_bool();
+        g_scale_          = this->get_parameter("g_scale").as_double();
+        verbose_          = this->get_parameter("verbose").as_bool();
+        enable_left_      = this->get_parameter("enable_left").as_bool();
+        enable_right_     = this->get_parameter("enable_right").as_bool();
+        enable_coriolis_  = this->get_parameter("enable_coriolis").as_bool();  // [Coriolis]
+        c_scale_          = this->get_parameter("c_scale").as_double();        // [Coriolis]
 
         std::string urdf_path = this->get_parameter("urdf_path").as_string();
         if (urdf_path.empty()) {
@@ -97,7 +104,7 @@ public:
                 "/right_forward_effort_controller/commands", 10);
         }
 
-        // Dynamic parameter callback for runtime g_scale tuning
+        // Dynamic parameter callback for runtime tuning
         param_callback_ = this->add_on_set_parameters_callback(
             [this](const std::vector<rclcpp::Parameter> & params) {
                 rcl_interfaces::msg::SetParametersResult result;
@@ -106,6 +113,16 @@ public:
                     if (p.get_name() == "g_scale") {
                         g_scale_ = p.as_double();
                         RCLCPP_INFO(get_logger(), "g_scale updated to %.3f", g_scale_);
+                    }
+                    // [Coriolis] 支持运行时动态调整科里奥利补偿参数，无需重启节点
+                    if (p.get_name() == "c_scale") {
+                        c_scale_ = p.as_double();
+                        RCLCPP_INFO(get_logger(), "c_scale updated to %.3f", c_scale_);
+                    }
+                    if (p.get_name() == "enable_coriolis") {
+                        enable_coriolis_ = p.as_bool();
+                        RCLCPP_INFO(get_logger(), "enable_coriolis updated to %s",
+                                    enable_coriolis_ ? "true" : "false");
                     }
                 }
                 return result;
@@ -116,7 +133,9 @@ public:
             "/joint_states", 10,
             std::bind(&GravityCompNode::joint_state_callback, this, std::placeholders::_1));
 
-        RCLCPP_INFO(get_logger(), "gravity_comp_node started. g_scale=%.3f", g_scale_);
+        RCLCPP_INFO(get_logger(),
+            "gravity_comp_node started. g_scale=%.3f, enable_coriolis=%s, c_scale=%.3f",
+            g_scale_, enable_coriolis_ ? "true" : "false", c_scale_);
     }
 
 private:
@@ -138,8 +157,10 @@ private:
     {
         const size_t ndof = joint_names.size();  // 7
         std::vector<double> q(ndof, 0.0);
+        // [Coriolis] 关节速度，用于计算科里奥利力矩 C(q,q̇)q̇
+        std::vector<double> q_dot(ndof, 0.0);
 
-        // Map joint_states (unordered) into q[] by name lookup
+        // Map joint_states (unordered) into q[] and q_dot[] by name lookup
         for (size_t j = 0; j < ndof; ++j) {
             auto it = std::find(msg->name.begin(), msg->name.end(), joint_names[j]);
             if (it == msg->name.end()) {
@@ -149,25 +170,42 @@ private:
             size_t idx = static_cast<size_t>(std::distance(msg->name.begin(), it));
             if (idx >= msg->position.size()) return;
             q[j] = msg->position[idx];
+
+            // [Coriolis] 读取关节速度；若 joint_states 中速度字段为空则保持 0.0，
+            // 此时科里奥利项输出为零，退化为纯重力补偿，不影响安全性
+            if (!msg->velocity.empty() && idx < msg->velocity.size()) {
+                q_dot[j] = msg->velocity[idx];
+            }
         }
 
         // Compute gravity torques in URDF frame
         std::vector<double> tau_g(ndof, 0.0);
         dyn.GetGravity(q.data(), tau_g.data());
 
+        // [Coriolis] 计算科里奥利力矩 C(q,q̇)q̇，单位 Nm
+        // 原理：机械臂运动时各关节速度耦合产生的速度相关力矩，
+        // 若不补偿则作为反力传递到底盘引起晃动
+        std::vector<double> tau_c(ndof, 0.0);
+        if (enable_coriolis_) {
+            dyn.GetColiori(q.data(), q_dot.data(), tau_c.data());
+        }
+
         // Scale and clamp — direction correction is done by hardware write()
         auto out = std_msgs::msg::Float64MultiArray();
         out.data.resize(ndof);
         for (size_t j = 0; j < ndof; ++j) {
-            double tau_motor = g_scale_ * tau_g[j];
+            // [Coriolis] 总前馈力矩 = 重力补偿 + 科里奥利补偿
+            double tau_motor = g_scale_ * tau_g[j] + c_scale_ * tau_c[j];
             double limit = (j < TAU_LIMITS.size()) ? TAU_LIMITS[j]
                                                    : std::numeric_limits<double>::infinity();
             tau_motor = std::clamp(tau_motor, -limit, limit);
             out.data[j] = tau_motor;
 
             if (verbose_) {
+                // [Coriolis] 日志中额外打印科里奥利项，便于调试时判断其量级
                 RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-                    "j%zu q=%.3f tau_g=%.3f tau_out=%.3f", j, q[j], tau_g[j], tau_motor);
+                    "j%zu q=%.3f q_dot=%.3f tau_g=%.3f tau_c=%.3f tau_out=%.3f",
+                    j, q[j], q_dot[j], tau_g[j], tau_c[j], tau_motor);
             }
         }
 
@@ -175,10 +213,12 @@ private:
     }
 
     // Parameters
-    double g_scale_     = 0.95;
-    bool verbose_       = false;
-    bool enable_left_   = true;
-    bool enable_right_  = true;
+    double g_scale_          = 1.05;
+    bool verbose_            = false;
+    bool enable_left_        = true;
+    bool enable_right_       = true;
+    bool enable_coriolis_    = true;   // [Coriolis] 科里奥利补偿开关
+    double c_scale_          = 1.0;   // [Coriolis] 科里奥利力矩缩放系数
 
     // Dynamics
     std::unique_ptr<Dynamics> left_dyn_;
